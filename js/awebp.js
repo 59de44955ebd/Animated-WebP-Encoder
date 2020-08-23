@@ -72,11 +72,9 @@
 
 		var reader = new FileReader();
 		var frame_num = 0;
-
 		var size = 12 + 18 + 14;
 
 		reader.onload = (e) => {
-			var view = new DataView(reader.result); // reader.result: ArrayBuffer
 
 			//######################################
 			// ANMF chunk
@@ -94,21 +92,18 @@
 			chunks.push(ANMF.buffer);
 			size += 24;
 
-			// add image data
+			// add actual image data
 			chunks.push(reader.result.slice(12));
-			size += (reader.result.byteLength-12);
 
+			size += (reader.result.byteLength-12);
 			frame_num++;
 
 			if (frame_num<frame_blobs.length){
-
 				// handle next frame
 				reader.readAsArrayBuffer(frame_blobs[frame_num]);
-
 			}else{
 				// update total size
-				var header_buf = chunks[0];
-				var header_view = new DataView(header_buf);
+				var header_view = new DataView(chunks[0]);
 				header_view.setUint32(4, size-8, true);
 
 				if (console.timeEnd) console.timeEnd('Encoding AWEBP');
