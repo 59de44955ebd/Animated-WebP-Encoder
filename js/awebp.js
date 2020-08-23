@@ -50,7 +50,6 @@
 
 		if (console.time) console.time('Encoding AWEBP');
 		var chunks = [];
-		var sequence_number = 0;
 
 		// WebP file header (8+4 bytes)
 		var header = new Uint8Array([0x52,0x49,0x46,0x46,  0,0,0,0,  0x57,0x45,0x42,0x50]); // RIFF...WEBP
@@ -86,13 +85,11 @@
 			var ANMF_view = new DataView(ANMF.buffer);
 			this._writeStr(ANMF, 0, 'ANMF');
 			ANMF_view.setUint32(4, 16+reader.result.byteLength-12, true);
-
 			ANMF_view.setUint32(8, 0, true); //24 bit
 			ANMF_view.setUint32(11, 0, true); //24 bit
 			ANMF_view.setUint32(14, this._width-1, true); //24 bit
 			ANMF_view.setUint32(17, this._height-1, true); //24 bit
 			ANMF_view.setUint32(20, 1000/this._fps, true); //24 bit
-
 			ANMF_view.setUint8(23, 3);
 			chunks.push(ANMF.buffer);
 			size += 24;
