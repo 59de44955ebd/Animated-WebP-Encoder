@@ -51,22 +51,18 @@
 		if (console.time) console.time('Encoding AWEBP');
 		var chunks = [];
 
-		// WebP file header (8+4 bytes)
+		// WebP RIFF file header (8+4 bytes)
 		var header = new Uint8Array([0x52,0x49,0x46,0x46,  0,0,0,0,  0x57,0x45,0x42,0x50]); // RIFF...WEBP
 		chunks.push(header.buffer);
 
-		//######################################
 		// VP8X chunk (8+10 bytes)
-		//######################################
 		var VP8X = new Uint8Array([0x56,0x50,0x38,0x58,  0x0A,0,0,0,  2,0,0,0, 0,0,0, 0,0,0]);
 		var VP8X_view = new DataView(VP8X.buffer);
 		VP8X_view.setUint16(12, this._width-1, true); // actually 24 bit, but max. 65536 px width should be fine
 		VP8X_view.setUint16(15, this._height-1, true); // actually 24 bit, but max. 65536 px height should be fine
 		chunks.push(VP8X.buffer);
 
-		//######################################
 		// ANIM chunk (8+6 bytes)
-		//######################################
 		var ANIM = new Uint8Array([0x41,0x4E,0x49,0x4D,  6,0,0,0,  0,0,0,0,0,0]);
 		chunks.push(ANIM.buffer);
 
@@ -76,9 +72,7 @@
 
 		reader.onload = (e) => {
 
-			//######################################
-			// ANMF chunk
-			//######################################
+			// ANMF chunk (8 + 16 + <length of image data> bytes)
 			var ANMF = new Uint8Array(8 + 16); // 24 bytes
 			var ANMF_view = new DataView(ANMF.buffer);
 			this._writeStr(ANMF, 0, 'ANMF');
@@ -92,7 +86,7 @@
 			chunks.push(ANMF.buffer);
 			size += 24;
 
-			// add actual image data
+			// add actual image data (WebP frame without RIFF header)
 			chunks.push(reader.result.slice(12));
 
 			size += (reader.result.byteLength-12);
