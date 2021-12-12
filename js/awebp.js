@@ -3,11 +3,11 @@
  *
  * @file Creates an Animated WebP from an array of WebP blobs.
  * @author Valentin Schmidt
- * @version 0.1
+ * @version 0.2
  *
  * -- MIT License
  *
- * Copyright (c) 2020 Valentin Schmidt
+ * Copyright (c) 2021 Valentin Schmidt
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this
  * software and associated documentation files (the "Software"), to deal in the Software
@@ -28,9 +28,12 @@
 
 'use strict';
 
+const MAGIC_VP8X = 0x56503858; // "VPX8"
+const MAGIC_ICCP = 0x49434350; // "ICCP"
+
 (function(root) {
 
-	var AWEBPEncoder = function(w, h, fps){
+	var AWEBPEncoder = function(w, h, fps) {
 		this._width = w;
 		this._height = h;
 		this._fps = fps;
@@ -41,42 +44,63 @@
 	 * @param {array} frames - Array of WebPs as blobs
 	 * @param {function} cb - A callback that receives the final Animated WebP blob
 	 */
-	AWEBPEncoder.prototype.createFromBlobs = function(frame_blobs, cb){
-		if (frame_blobs.length==0){
+	AWEBPEncoder.prototype.createFromBlobs = function(frame_blobs, cb) {
+		if (frame_blobs.length == 0) {
 			throw('Empty blob array');
-		}else if (frame_blobs[0].type!='image/webp'){
+		} else if (frame_blobs[0].type != 'image/webp') {
 			throw('Blob has wrong mimetype');
 		}
 
 		if (console.time) console.time('Encoding AWEBP');
-		var chunks = [];
+		let chunks = [];
 
-		// WebP RIFF file header (8+4 bytes)
-		var header = new Uint8Array([0x52,0x49,0x46,0x46,  0,0,0,0,  0x57,0x45,0x42,0x50]); // RIFF...WEBP
+		let size = 0,
+			frame_num = 0,
+			frame_data,
+			frame_view,
+			offset_image;
+
+		// WebP file header (8+4 bytes)
+		let header = new Uint8Array([0x52,0x49,0x46,0x46,  0,0,0,0,  0x57,0x45,0x42,0x50]); // RIFF...WEBP
 		chunks.push(header.buffer);
+		size += 12;
 
+		//######################################
 		// VP8X chunk (8+10 bytes)
-		var VP8X = new Uint8Array([0x56,0x50,0x38,0x58,  0x0A,0,0,0,  2,0,0,0, 0,0,0, 0,0,0]);
-		var VP8X_view = new DataView(VP8X.buffer);
+		//######################################
+		let VP8X = new Uint8Array([0x56,0x50,0x38,0x58,  0x0A,0,0,0,  2,0,0,0, 0,0,0, 0,0,0]);
+		let VP8X_view = new DataView(VP8X.buffer);
 		VP8X_view.setUint16(12, this._width-1, true); // actually 24 bit, but max. 65536 px width should be fine
 		VP8X_view.setUint16(15, this._height-1, true); // actually 24 bit, but max. 65536 px height should be fine
 		chunks.push(VP8X.buffer);
+		size += 18;
 
+		//######################################
 		// ANIM chunk (8+6 bytes)
-		var ANIM = new Uint8Array([0x41,0x4E,0x49,0x4D,  6,0,0,0,  0,0,0,0,0,0]);
+		//######################################
+		let ANIM = new Uint8Array([0x41,0x4E,0x49,0x4D,  6,0,0,0,  0,0,0,0,0,0]);
 		chunks.push(ANIM.buffer);
+		size += 14;
 
-		var reader = new FileReader();
-		var frame_num = 0;
-		var size = 12 + 18 + 14;
-
+		let reader = new FileReader();
 		reader.onload = (e) => {
+			frame_data = new Uint8Array(reader.result);
+			frame_view = new DataView(frame_data.buffer);
+			if (frame_view.getUint32(12) == MAGIC_VP8X) // Extended File Format (newer Chrome versions)
+				if (frame_view.getUint32(30) == MAGIC_ICCP)
+					offset_image = 30 + 8 + frame_view.getUint32(34, true);
+				else
+					offset_image = 30;
+			else // Simple File Format (older Chrome versions)
+				offset_image = 12;
 
-			// ANMF chunk (8 + 16 + <length of image data> bytes)
-			var ANMF = new Uint8Array(8 + 16); // 24 bytes
-			var ANMF_view = new DataView(ANMF.buffer);
+			//######################################
+			// ANMF chunk
+			//######################################
+			let ANMF = new Uint8Array(8 + 16); // 24 bytes
+			let ANMF_view = new DataView(ANMF.buffer);
 			this._writeStr(ANMF, 0, 'ANMF');
-			ANMF_view.setUint32(4, 16+reader.result.byteLength-12, true);
+			ANMF_view.setUint32(4, 16 + reader.result.byteLength - offset_image, true);
 			ANMF_view.setUint32(8, 0, true); //24 bit
 			ANMF_view.setUint32(11, 0, true); //24 bit
 			ANMF_view.setUint32(14, this._width-1, true); //24 bit
@@ -86,18 +110,18 @@
 			chunks.push(ANMF.buffer);
 			size += 24;
 
-			// add actual image data (WebP frame without RIFF header)
-			chunks.push(reader.result.slice(12));
+			// add actual image data
+			chunks.push(reader.result.slice(offset_image));
+			size += (reader.result.byteLength - offset_image);
 
-			size += (reader.result.byteLength-12);
 			frame_num++;
 
-			if (frame_num<frame_blobs.length){
+			if (frame_num < frame_blobs.length) {
 				// handle next frame
 				reader.readAsArrayBuffer(frame_blobs[frame_num]);
-			}else{
+			} else {
 				// update total size
-				var header_view = new DataView(chunks[0]);
+				let header_view = new DataView(chunks[0]);
 				header_view.setUint32(4, size-8, true);
 
 				if (console.timeEnd) console.timeEnd('Encoding AWEBP');
@@ -114,8 +138,8 @@
 	 * Utility, saves Animated WebP blob as local file
 	 * @param {string} [filename=animation.webp]
 	 */
-	AWEBPEncoder.prototype.saveAsFile = function(filename){
-		if (!this._blob){
+	AWEBPEncoder.prototype.saveAsFile = function(filename) {
+		if (!this._blob) {
 			throw('No blob was generated');
 		}
 		if (!filename) filename = 'animation.webp';
@@ -141,12 +165,12 @@
 	 * @param {function} [cbProgress]
 	 */
 	AWEBPEncoder.prototype.upload =  function (url, varName, postVars, cbLoaded, cbProgress) {
-		if (!this._blob){
+		if (!this._blob) {
 			throw('No blob was generated');
 		}
 		var fd = new FormData();
 		fd.append(varName, this._blob);
-		if (postVars){
+		if (postVars) {
 			for (var k in postVars) fd.append(k, postVars[k]);
 		}
 		var xhr = new XMLHttpRequest();
@@ -170,7 +194,7 @@
 	/**
 	 * @private
 	 */
-	AWEBPEncoder.prototype._writeStr = function(arr, pos, str){
+	AWEBPEncoder.prototype._writeStr = function(arr, pos, str) {
 		for (var i=0;i<str.length;i++){
 			arr[pos+i] = str.charCodeAt(i);
 		}
